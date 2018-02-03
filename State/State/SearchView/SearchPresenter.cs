@@ -12,14 +12,8 @@ namespace State.SearchView
     {
         ISearchView _view;
         SearchUseCase _searchUseCase;
-        private CompositeDisposable _disposables;
-
-        BehaviorSubject<SearchViewState> _intents = new BehaviorSubject<SearchViewState>(new SearchViewState.SearchNotStartedYet());
-
-        IObservable<SearchViewState> AllIntents
-        {
-            get { return _intents.AsObservable(); }
-        }
+        BehaviorSubject<SearchViewState> _viewState = new BehaviorSubject<SearchViewState>(new SearchViewState.SearchNotStartedYet());
+        CompositeDisposable _disposables = new CompositeDisposable();
 
         public SearchPresenter(SearchUseCase searchUseCase)
         {
@@ -31,50 +25,36 @@ namespace State.SearchView
             _view = view;
         }
 
-        public void BindIntents()
-        {
-            _disposables = new CompositeDisposable();
-
-            var searchAction = Intent(_view.SearchIntent())
-                .SelectMany(query => _searchUseCase.Search(query))
-                .SubscribeOn(TaskPoolScheduler.Default)
-                .ObserveOn(SynchronizationContext.Current);
-
-      
-            _disposables.Add(searchAction.Subscribe(_intents));
-
-           _disposables.Add( AllIntents.Subscribe(state =>
-            _view.Render(state)));
-        }
-
-        private IObservable<T> Intent<T>(IObservable<T> observable)
-        {
-            var subject = new Subject<T>();
-
-            _disposables.Add(observable.Subscribe(subject));
-
-            _disposables.Add(subject);
-
-            return subject.AsObservable();
-        }
-
-        public void UnBindIntents()
-        {
-            _disposables.Dispose();
-            _disposables = null;
-        }
-
-        public void OnDestroy()
-        {
-            _searchUseCase = null;
-            _intents.Dispose();
-            _intents = null;
-        }
-
         public void DetachView()
         {
             _view = null;
         }
 
+        public void BindIntents()
+        {
+            _disposables.Add(_viewState.Subscribe(state => _view.Render(state)));
+
+            _disposables.Add(
+                _view.SearchIntent()
+                     .SelectMany(query => _searchUseCase.Search(query))
+                     .SubscribeOn(TaskPoolScheduler.Default)
+                     .ObserveOn(SynchronizationContext.Current)
+                     .Subscribe(state => _viewState.OnNext(state))
+                     );
+        }
+
+        public void UnBindIntents()
+        {
+            _disposables.Clear();
+        }
+
+        public void OnDestroy()
+        {
+            _disposables.Dispose();
+            _disposables = null;
+            _searchUseCase = null;
+            _viewState.Dispose();
+            _viewState = null;
+        }
     }
 }
